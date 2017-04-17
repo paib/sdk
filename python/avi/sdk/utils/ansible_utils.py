@@ -264,7 +264,9 @@ def avi_ansible_api(module, obj_type, sensitive_fields):
             tenant=module.params['tenant'])
     state = module.params['state']
     # Get the api version.
-    api_version = module.params['api_version']
+    api_version = module.params.get('api_version', None)
+    if not api_version:
+        api_version = '16.4'
     name = module.params.get('name', None)
     check_mode = module.check_mode
     obj_path = None
@@ -298,11 +300,11 @@ def avi_ansible_api(module, obj_type, sensitive_fields):
 
     if name is not None:
         # added api version to avi api call.
-        existing_obj = api.get_object_by_name(obj_type, name, tenant=tenant,
-                                              tenant_uuid=tenant_uuid,
-                                              params={'include_refs': '',
-                                                      'include_name': ''},
-                                              api_version=api_version)
+        existing_obj = api.\
+            get_object_by_name(obj_type, name, tenant=tenant,
+                               tenant_uuid=tenant_uuid,
+                               params={'include_refs': '','include_name': ''},
+                               api_version=api_version)
     else:
         # added api version to avi api call.
         existing_obj = api.get(obj_path, tenant=tenant, tenant_uuid=tenant_uuid,
