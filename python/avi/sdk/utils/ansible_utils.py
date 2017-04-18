@@ -266,7 +266,7 @@ def avi_ansible_api(module, obj_type, sensitive_fields):
             tenant=module.params['tenant'])
     state = module.params['state']
     # Get the api version.
-    api_version = module.params.get('api_version', '16.4')
+    api_version = module.params.get('api_version', '16.4.1')
     name = module.params.get('name', None)
     check_mode = module.check_mode
     obj_path = None
@@ -381,4 +381,4 @@ def avi_common_argument_spec():
             password=dict(default=os.environ.get('AVI_PASSWORD', ''), no_log=True),
             tenant=dict(default='admin'),
             tenant_uuid=dict(default=''),
-            api_version=dict(default='16.4', type='str'))
+            api_version=dict(default='16.4.1', type='str'))
