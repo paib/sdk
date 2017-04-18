@@ -151,9 +151,10 @@ def add_conv_status(f5_type, f5_sub_type, f5_id, conv_status, avi_object=None):
     :param avi_object: Converted objectconverted avi object
     """
     global csv_writer_dict_list
+    # Added space if f5_sub_type None for pivot table
     row = {
         'F5 type': f5_type,
-        'F5 SubType': f5_sub_type,
+        'F5 SubType': f5_sub_type if f5_sub_type else ' ',
         'F5 ID': f5_id,
         'Status': conv_status.get('status', ''),
         'Skipped settings': str(conv_status.get('skipped', '')),
@@ -175,9 +176,10 @@ def add_status_row(f5_type, f5_sub_type, f5_id, status):
     :param status: conversion status
     """
     global csv_writer_dict_list
+    # Added space if f5_sub_type None for pivot table
     row = {
         'F5 type': f5_type,
-        'F5 SubType': f5_sub_type,
+        'F5 SubType': f5_sub_type if f5_sub_type else ' ',
         'F5 ID': f5_id,
         'Status': status,
     }
@@ -463,7 +465,9 @@ def get_service_obj(destination, vs_list, enable_ssl):
     parts = destination.split(':')
     ip_addr = parts[0]
     port = parts[1] if len(parts) == 2 else conv_const.DEFAULT_PORT
-    vs_dup_ips = [vs for vs in vs_list if vs['ip_address']['addr'] == ip_addr]
+    # Get the list of vs which shared the same vip
+    vs_dup_ips = \
+        [vs for vs in vs_list if vs['vip'][0]['ip_address']['addr'] == ip_addr]
 
     if port == 'any':
         port = 0

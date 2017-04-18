@@ -400,9 +400,11 @@ def get_vs_if_shared_vip(avi_config):
     vs_list = [v for v in avi_config['VirtualService'] if 'port_range_end' in
                v['services'][0]]
     for vs in vs_list:
+        # Get the list of vs which shared the same vip
         vs_port_list = [int(v['services'][0]['port']) for v in
                         avi_config['VirtualService']
-                        if v['ip_address']['addr'] == vs['ip_address']['addr']
+                        if v['vip'][0]['ip_address']['addr'] ==
+                        vs['vip'][0]['ip_address']['addr']
                         and 'port_range_end' not in v['services'][0]]
         if vs_port_list:
             min_port = min(vs_port_list)
@@ -446,8 +448,9 @@ def is_shared_same_vip(vs, avi_config):
     :return: Bool value
     """
 
+    # Get the list of vs which shared the same vip
     shared_vip = [v for v in avi_config
-                  if v['ip_address']['addr'] == vs['ip_address']['addr']
+                  if v['vip'][0]['ip_address']['addr'] == vs['vip'][0]['ip_address']['addr']
                   and v['services'][0]['port'] == vs['services'][0]['port']]
 
     if shared_vip:
@@ -828,7 +831,7 @@ def clean_virtual_service_from_avi_config(avi_config):
     """
     vs_list = copy.deepcopy(avi_config['VirtualService'])
     avi_config['VirtualService'] = []
-    avi_config['VirtualService'] = [vs for vs in vs_list if vs['ip_address']['addr'] != '0.0.0.0']
+    avi_config['VirtualService'] = [vs for vs in vs_list if vs['vip'][0]['ip_address']['addr'] != '0.0.0.0']
 
 def get_name(url):
     """
@@ -1117,3 +1120,24 @@ def write_status_report_and_pivot_table_in_xlsx(row_list, output_dir):
     # Add pivot table in Pivot sheet
     pivot_df.to_excel(master_writer, 'Pivot Sheet')
     master_writer.save()
+
+def update_skip_duplicates(obj, obj_list, obj_type, merge_profile_mapping, name):
+    """
+    Merge duplicate profiles
+    :param obj: Source object to find duplicates for
+    :param obj_list: List of object to search duplicates in
+    :param obj_type: Type of object to add in converted_objs status
+    :param converted_objs: Converted avi object or merged object name
+    :param name: Name of the object
+    :param default_profile_name : Name of root parent default profile
+    :return:
+    """
+    dup_of = None
+    dup_of = check_for_duplicates(obj, obj_list)
+    merge_profile_mapping[obj_type].update({name: name})
+    if dup_of:
+        # Update value of ssl profile with merged profile
+        merge_profile_mapping[obj_type].update({name: dup_of})
+        return True
+    return False
+

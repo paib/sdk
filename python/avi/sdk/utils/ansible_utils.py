@@ -305,6 +305,7 @@ def avi_ansible_api(module, obj_type, sensitive_fields):
                                params={'include_refs': '', 'include_name': ''},
                                api_version=api_version)
     else:
+        # added api version to avi api call.
         existing_obj = api.get(obj_path, tenant=tenant, tenant_uuid=tenant_uuid,
                                params={'include_refs': '', 'include_name': ''},
                                api_version=api_version).json()
@@ -317,10 +318,12 @@ def avi_ansible_api(module, obj_type, sensitive_fields):
                 else:
                     return module.exit_json(changed=False, obj=None)
             if name is not None:
+                # added api version to avi api call.
                 rsp = api.delete_by_name(
                     obj_type, name, tenant=tenant, tenant_uuid=tenant_uuid,
                     api_version=api_version)
             else:
+                # added api version to avi api call.
                 rsp = api.delete(obj_path, tenant=tenant,
                                  tenant_uuid=tenant_uuid,
                                  api_version=api_version)
