@@ -1079,6 +1079,13 @@ def get_csv_object_list(csv_writer_dict_list, command_list):
 
 
 def get_and_update_csv_row(csv_object, vs_ref):
+    """
+    This function defines that update csv row.
+    :param csv_object: csv object
+    :param vs_ref: Name of VS
+    :return: Skipped attribute list
+    """
+
     if 'VS Reference' in csv_object and \
                     vs_ref not in csv_object['VS Reference']:
         csv_object['VS Reference'] += ',' + vs_ref
@@ -1095,10 +1102,11 @@ def get_and_update_csv_row(csv_object, vs_ref):
 def get_csv_skipped_list(csv_objects, name_of_object, vs_ref, field_key=None):
     """
     This method is used for getting skipped list from vs.
-    :param csv_object: CSV row of object from xlsx report
-    :param name_of_object: Name of Object
-    :param vs_ref: Reference of VS
-    :return: List of skipped settings
+    :param csv_objects: CSV row of object from xlsx report
+    :param name_of_object: Name of object
+    :param vs_ref: Name of VS
+    :param field_key: Key fromm avi json which is specific for object type
+    :return: Return skipped attribute list
     """
 
     for csv_object in csv_objects:
@@ -1125,9 +1133,10 @@ def get_csv_skipped_list(csv_objects, name_of_object, vs_ref, field_key=None):
 def get_ssl_profile_skipped(profile_csv_list, ssl_profile_ref, vs_ref):
     """
     This functions defines that get the skipped list of CSV row
-    :param csv_writer_dict_list: CSV row of object from xlsx report
-    :param name_of_object: object name like pool name, virtual service obj name.
-    :return: List of skipped settings
+    :param profile_csv_list: List of profile(F5 type) csv rows
+    :param ssl_profile_ref: Reference of ssl profile
+    :param vs_ref: Name of VS
+    :return: ssl profile name and skipped sttribute list
     """
 
     ssl_profile_name = get_name(ssl_profile_ref)
@@ -1140,9 +1149,10 @@ def get_ssl_profile_skipped(profile_csv_list, ssl_profile_ref, vs_ref):
 def get_application_profile_skipped(profile_csv_list, app_profile_ref, vs_ref):
     """
     This functions defines that get the skipped list of CSV row
-    :param csv_writer_dict_list: CSV row of object from xlsx report
-    :param name_of_object: object name like pool name, virtual service obj name.
-    :return: List of skipped settings
+    :param profile_csv_list: List of profile(F5 type) csv rows
+    :param app_profile_ref: Reference of application profile
+    :param vs_ref: Name of VS
+    :return: application profile name and skipped sttribute list
     """
 
     app_profile_name = get_name(app_profile_ref)
@@ -1154,9 +1164,10 @@ def get_application_profile_skipped(profile_csv_list, app_profile_ref, vs_ref):
 def get_network_profile_skipped(profile_csv_list, network_profile_ref, vs_ref):
     """
     This functions defines that get the skipped list of CSV row
-    :param csv_writer_dict_list:List of add ns tcpProfile netscaler command rows
-    :param name_of_object: object name like pool name, virtual service obj name.
-    :return: List of skipped settings
+    :param profile_csv_list: List of profile(F5 type) csv rows
+    :param network_profile_ref: Reference of Network profile
+    :param vs_ref: Name of VS
+    :return: network profile name and skipped sttribute list
     """
 
     network_profile_name = get_name(network_profile_ref)
@@ -1164,12 +1175,14 @@ def get_network_profile_skipped(profile_csv_list, network_profile_ref, vs_ref):
                                         vs_ref, field_key='network_profile')
     return network_profile_name, skipped_list
 
+
 def get_policy_set_skipped(profile_csv_list, policy_set_ref, vs_ref):
     """
     This functions defines that get the skipped list of CSV row
-    :param csv_writer_dict_list:List of add ns tcpProfile netscaler command rows
-    :param name_of_object: object name like pool name, virtual service obj name.
-    :return: List of skipped settings
+    :param profile_csv_list: List of profile(F5 type) csv rows
+    :param policy_set_ref: Reference of policy set
+    :param vs_ref: Name of VS
+    :return: policy set name and skipped sttribute list
     """
 
     policy_set_name = get_name(policy_set_ref)
@@ -1178,17 +1191,18 @@ def get_policy_set_skipped(profile_csv_list, policy_set_ref, vs_ref):
     return policy_set_name, skipped_list
 
 
-def get_app_persistence_profile_skipped(csv_writer_dict_list, name_of_object,
+def get_app_persistence_profile_skipped(csv_writer_dict_list, pool_object,
                                         vs_ref):
     """
     This functions defines that get the skipped list of CSV row
-    :param csv_writer_dict_list: List of set lb group netscaler command rows
-    :param name_of_object: object name like pool name, virtual service obj name.
-    :return: List of skipped settings
+    :param csv_writer_dict_list: List of csv rows
+    :param pool_object: object of pool
+    :param vs_ref: Name of VS
+    :return: profile name and skipped attribute list
     """
 
     app_persistence_profile_name = \
-        get_name(name_of_object['application_persistence_profile_ref'])
+        get_name(pool_object['application_persistence_profile_ref'])
     csv_object = \
         get_csv_object_list(csv_writer_dict_list, ['persistence'])
     skipped_list = \
@@ -1199,9 +1213,10 @@ def get_app_persistence_profile_skipped(csv_writer_dict_list, name_of_object,
 def get_pool_skipped(csv_objects, pool_name, vs_ref):
     """
     This functions defines that get the skipped list of CSV row
-    :param csv_writer_dict_list: CSV row of object from xlsx report
-    :param name_of_object: object name like pool name, virtual service obj name.
-    :return: List of skipped settings
+    :param csv_objects: CSV row of object from xlsx report
+    :param pool_name: Name of pool
+    :param vs_ref: Name of VS
+    :return: Skipped list of csv row
     """
 
     for csv_object in csv_objects:
@@ -1219,11 +1234,11 @@ def get_pool_skipped_list(avi_config, pool_group_name, csv_pool_rows,
     This method is used for getting pool skipped list.
     :param avi_config: AVI dict
     :param pool_group_name: Name of Pool group
-    :param skipped_setting: List of skipped settings
-    :param csv_object: CSV row
-    :param obj_name: Name of Object
-    :param csv_writer_dict_list: List of bind lb vserver netscaler command rows
-    :return: List of skipped settings
+    :param csv_pool_rows: List of pool(F5 type) csv rows
+    :param csv_writer_dict_list: List of F5 csv rows
+    :param vs_ref: Name of VS
+    :param profile_csv_list: List of profile(F5 type) csv rows
+    :return:
     """
 
     pool_group_objects = [pool_group_object for pool_group_object in
@@ -1295,11 +1310,11 @@ def get_pool_skipped_list(avi_config, pool_group_name, csv_pool_rows,
 def vs_per_skipped_setting_for_references(avi_config):
     """
     This functions defines that Add the skipped setting per VS CSV row
-    :param avi_config: this methode use avi_config for checking vs skipped
+    :param avi_config: this method use avi_config for checking vs skipped
     :return: None
     """
     # Get the VS object list which is having status successful and partial.
-    # get the count of vs sucessfully migrated
+    # get the count of vs fully migrated
 
     global fully_migrated
     fully_migrated = 0
