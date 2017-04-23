@@ -3,6 +3,8 @@ import logging
 import os
 import urlparse
 import pandas
+import json
+import re
 import avi.migrationtools.f5_converter.converter_constants as conv_const
 
 from xlsxwriter import Workbook
@@ -11,10 +13,8 @@ from OpenSSL import crypto
 from socket import gethostname
 
 
-
 LOG = logging.getLogger(__name__)
 csv_writer_dict_list = []
-
 
 def upload_file(file_path):
     """
@@ -186,11 +186,13 @@ def add_status_row(f5_type, f5_sub_type, f5_id, status):
     csv_writer_dict_list.append(row)
 
 
-def add_complete_conv_status(output_dir):
+def add_complete_conv_status(output_dir, avi_config):
     global csv_writer_dict_list
     for status in conv_const.STATUS_LIST:
-        status_list = [row for row in csv_writer_dict_list if row['Status'] == status]
+        status_list = [row for row in csv_writer_dict_list if
+                       row['Status'] == status]
         print '%s: %s' % (status, len(status_list))
+    vs_per_skipped_setting_for_references(avi_config)
     write_status_report_and_pivot_table_in_xlsx(output_dir)
 
 
@@ -994,7 +996,9 @@ def write_status_report_and_pivot_table_in_xlsx(output_dir):
     # List of fieldnames for headers
     fieldnames = ['F5 type', 'F5 SubType', 'F5 ID', 'Status',
                   'Skipped settings', 'Indirect mapping', 'Not Applicable',
-                  'User Ignored', 'Skipped for defaults', 'Avi Object']
+                  'User Ignored', 'Skipped for defaults', 'VS Reference',
+                  'Overall skipped settings', 'Avi Object']
+
     # xlsx workbook
     status_wb = Workbook(output_dir + os.path.sep + "ConversionStatus.xlsx")
     # xlsx worksheet
@@ -1027,3 +1031,386 @@ def write_status_report_and_pivot_table_in_xlsx(output_dir):
     # Add pivot table in Pivot sheet
     pivot_df.to_excel(master_writer, 'Pivot Sheet')
     master_writer.save()
+
+
+def get_name(url):
+    """
+    This function defines that return name object from url
+    :param url:
+    :return: Name of object
+    """
+    parsed = urlparse.urlparse(url)
+    return urlparse.parse_qs(parsed.query)['name'][0]
+
+
+def format_string_to_json(avi_string):
+    """
+    This function defines that it convert string into json format to
+    convert into dict
+    :param avi_string: string to be converted
+    :return: Return converted string
+    """
+    avi_string = avi_string.split('__/__')[0]
+    avi_string = re.sub(r"\"(.)+\"", "''", avi_string)
+    repls = ('True', 'true'), ('False', 'false'), ("\"", ""), ("'", "\""), \
+            ("None", "null"),('u"','"')
+    avi_string = reduce(lambda a, kv: a.replace(*kv), repls, avi_string)
+    try:
+        return json.loads(avi_string)
+    except Exception as e:
+        print e
+        pass
+
+
+def get_csv_object_list(csv_writer_dict_list, command_list):
+    """
+    This method is used for getting csv object
+    :param csv_writer_dict_list: CSV row of object from xlsx report
+    :param command_list: List of netscaler commands
+    :return: List of CSV rows
+    """
+
+    csv_object = [row for row in csv_writer_dict_list if
+                  row['Status'] in [conv_const.STATUS_PARTIAL,
+                                    conv_const.STATUS_SUCCESSFUL] and
+                  '->' not in row['Avi Object'] and
+                  row['F5 type'] in command_list]
+    return csv_object
+
+
+def get_and_update_csv_row(csv_object, vs_ref):
+    if 'VS Reference' in csv_object and \
+                    vs_ref not in csv_object['VS Reference']:
+        csv_object['VS Reference'] += ',' + vs_ref
+    else:
+        csv_object['VS Reference'] = vs_ref
+    repls = ('[', ''), (']', '')
+    skipped_setting_csv = reduce(lambda a, kv: a.replace(*kv),
+                                 repls,
+                                 csv_object['Skipped settings'])
+    if skipped_setting_csv:
+        return [skipped_setting_csv]
+
+
+def get_csv_skipped_list(csv_objects, name_of_object, vs_ref, field_key=None):
+    """
+    This method is used for getting skipped list from vs.
+    :param csv_object: CSV row of object from xlsx report
+    :param name_of_object: Name of Object
+    :param vs_ref: Reference of VS
+    :return: List of skipped settings
+    """
+
+    for csv_object in csv_objects:
+        avi_objects = format_string_to_json(csv_object['Avi Object'])
+        if isinstance(avi_objects, dict):
+            avi_objects = [avi_objects]
+        for avi_object_json in avi_objects:
+            object_found = False
+            if field_key:
+                if field_key in avi_object_json and 'Duplicate' not in \
+                        avi_object_json[field_key] and \
+                                avi_object_json[field_key]['name'] == \
+                                name_of_object:
+                    object_found = True
+            else:
+                if avi_object_json.get('name') and \
+                                avi_object_json['name'] == name_of_object:
+                    object_found = True
+
+            if object_found:
+                return get_and_update_csv_row(csv_object, vs_ref)
+
+
+def get_ssl_profile_skipped(profile_csv_list, ssl_profile_ref, vs_ref):
+    """
+    This functions defines that get the skipped list of CSV row
+    :param csv_writer_dict_list: CSV row of object from xlsx report
+    :param name_of_object: object name like pool name, virtual service obj name.
+    :return: List of skipped settings
+    """
+
+    ssl_profile_name = get_name(ssl_profile_ref)
+    skipped_list = \
+        get_csv_skipped_list(profile_csv_list, ssl_profile_name, vs_ref,
+                             field_key='ssl_profile')
+    return ssl_profile_name, skipped_list
+
+
+def get_application_profile_skipped(profile_csv_list, app_profile_ref, vs_ref):
+    """
+    This functions defines that get the skipped list of CSV row
+    :param csv_writer_dict_list: CSV row of object from xlsx report
+    :param name_of_object: object name like pool name, virtual service obj name.
+    :return: List of skipped settings
+    """
+
+    app_profile_name = get_name(app_profile_ref)
+    skipped_list = get_csv_skipped_list(profile_csv_list, app_profile_name,
+                                        vs_ref, field_key='app_profile')
+    return app_profile_name, skipped_list
+
+
+def get_network_profile_skipped(profile_csv_list, network_profile_ref, vs_ref):
+    """
+    This functions defines that get the skipped list of CSV row
+    :param csv_writer_dict_list:List of add ns tcpProfile netscaler command rows
+    :param name_of_object: object name like pool name, virtual service obj name.
+    :return: List of skipped settings
+    """
+
+    network_profile_name = get_name(network_profile_ref)
+    skipped_list = get_csv_skipped_list(profile_csv_list, network_profile_name,
+                                        vs_ref, field_key='network_profile')
+    return network_profile_name, skipped_list
+
+def get_policy_set_skipped(profile_csv_list, policy_set_ref, vs_ref):
+    """
+    This functions defines that get the skipped list of CSV row
+    :param csv_writer_dict_list:List of add ns tcpProfile netscaler command rows
+    :param name_of_object: object name like pool name, virtual service obj name.
+    :return: List of skipped settings
+    """
+
+    policy_set_name = get_name(policy_set_ref)
+    skipped_list = get_csv_skipped_list(profile_csv_list, policy_set_name,
+                                        vs_ref, field_key='policy_set')
+    return policy_set_name, skipped_list
+
+
+def get_app_persistence_profile_skipped(csv_writer_dict_list, name_of_object,
+                                        vs_ref):
+    """
+    This functions defines that get the skipped list of CSV row
+    :param csv_writer_dict_list: List of set lb group netscaler command rows
+    :param name_of_object: object name like pool name, virtual service obj name.
+    :return: List of skipped settings
+    """
+
+    app_persistence_profile_name = \
+        get_name(name_of_object['application_persistence_profile_ref'])
+    csv_object = \
+        get_csv_object_list(csv_writer_dict_list, ['persistence'])
+    skipped_list = \
+        get_csv_skipped_list(csv_object, app_persistence_profile_name, vs_ref)
+    return app_persistence_profile_name, skipped_list
+
+
+def get_pool_skipped(csv_objects, pool_name, vs_ref):
+    """
+    This functions defines that get the skipped list of CSV row
+    :param csv_writer_dict_list: CSV row of object from xlsx report
+    :param name_of_object: object name like pool name, virtual service obj name.
+    :return: List of skipped settings
+    """
+
+    for csv_object in csv_objects:
+        avi_object = format_string_to_json(csv_object['Avi Object'])
+        if 'pools' in avi_object:
+            pool_object = [pool for pool in avi_object['pools']
+                           if pool['name'] == pool_name]
+            if pool_object:
+                return get_and_update_csv_row(csv_object, vs_ref)
+
+
+def get_pool_skipped_list(avi_config, pool_group_name, csv_pool_rows,
+                          csv_writer_dict_list, vs_ref, profile_csv_list):
+    """
+    This method is used for getting pool skipped list.
+    :param avi_config: AVI dict
+    :param pool_group_name: Name of Pool group
+    :param skipped_setting: List of skipped settings
+    :param csv_object: CSV row
+    :param obj_name: Name of Object
+    :param csv_writer_dict_list: List of bind lb vserver netscaler command rows
+    :return: List of skipped settings
+    """
+
+    pool_group_objects = [pool_group_object for pool_group_object in
+                          avi_config['PoolGroup'] if pool_group_object['name']
+                          == pool_group_name]
+    pool_members = pool_group_objects[0]['members']
+    skipped_setting = {
+        'pools': []
+    }
+    for pool_member in pool_members:
+        pool_skipped_setting = {}
+        pool_name = get_name(pool_member['pool_ref'])
+        skipped_list = get_pool_skipped(csv_pool_rows, pool_name, vs_ref)
+        pool_object = [pool for pool in avi_config["Pool"]
+                       if pool['name'] == pool_name]
+        if skipped_list:
+            pool_skipped_setting['pool_name'] = pool_name
+            pool_skipped_setting['pool_skipped_list'] = skipped_list
+
+        if 'health_monitor_refs' in pool_object[0]:
+            health_monitor_skipped_setting = []
+            for health_monitor_ref in pool_object[0]['health_monitor_refs']:
+                health_monitor_ref = get_name(health_monitor_ref)
+                monitor_csv_object = \
+                    get_csv_object_list(csv_writer_dict_list, ['monitor'])
+                skipped_list = get_csv_skipped_list(
+                    monitor_csv_object, health_monitor_ref, vs_ref)
+                if skipped_list:
+                    health_monitor_skipped_setting.append(
+                        {'health_monitor_name': health_monitor_ref,
+                         'monitor_skipped_list': skipped_list})
+            if health_monitor_skipped_setting:
+                pool_skipped_setting['pool_name'] = pool_name
+                pool_skipped_setting['health_monitor'] = \
+                    health_monitor_skipped_setting
+        if 'ssl_key_and_certificate_ref' in pool_object[0] and \
+                pool_object[0]['ssl_key_and_certificate_ref']:
+            ssl_key_cert = \
+                get_name(pool_object[0]['ssl_key_and_certificate_ref'])
+            get_csv_skipped_list(profile_csv_list, ssl_key_cert, vs_ref,
+                                 field_key='key_cert')
+        if 'ssl_profile_ref' in pool_object[0] and \
+                pool_object[0]['ssl_profile_ref']:
+            name, skipped = get_ssl_profile_skipped(
+                profile_csv_list, pool_object[0]['ssl_profile_ref'], vs_ref)
+            if skipped:
+                pool_skipped_setting['pool_name'] = pool_name
+                pool_skipped_setting['ssl profile'] = {}
+                pool_skipped_setting['ssl profile']['name'] = name
+                pool_skipped_setting['ssl profile']['skipped_list'] = skipped
+
+        if 'application_persistence_profile_ref' in pool_object[0] and \
+                pool_object[0]['application_persistence_profile_ref']:
+            name, skipped = get_app_persistence_profile_skipped\
+                                (csv_writer_dict_list, pool_object[0], vs_ref)
+            if skipped:
+                pool_skipped_setting['pool_name'] = pool_name
+                pool_skipped_setting['Application Persistence profile'] = {}
+                pool_skipped_setting['Application Persistence profile'][
+                    'name'] = name
+                pool_skipped_setting['Application Persistence profile'][
+                    'skipped_list'] = skipped
+
+        if pool_skipped_setting:
+            skipped_setting['pools'].append(pool_skipped_setting)
+            return skipped_setting
+
+
+def vs_per_skipped_setting_for_references(avi_config):
+    """
+    This functions defines that Add the skipped setting per VS CSV row
+    :param avi_config: this methode use avi_config for checking vs skipped
+    :return: None
+    """
+    # Get the VS object list which is having status successful and partial.
+    # get the count of vs sucessfully migrated
+
+    global fully_migrated
+    fully_migrated = 0
+    vs_csv_objects = [row for row in csv_writer_dict_list
+                     if row['Status'] in [conv_const.STATUS_PARTIAL,
+                                          conv_const.STATUS_SUCCESSFUL]
+                     and row['F5 type'] == 'virtual']
+    profile_csv_list = get_csv_object_list(
+        csv_writer_dict_list, ['profile'])
+    for vs_csv_object in vs_csv_objects:
+        skipped_setting = {}
+        virtual_service = format_string_to_json(vs_csv_object['Avi Object'])
+        vs_ref = virtual_service['name']
+        repls = ('[', ''), (']', '')
+        skipped_setting_csv = reduce(lambda a, kv: a.replace(*kv), repls,
+                                     vs_csv_object['Skipped settings'])
+        if skipped_setting_csv:
+            skipped_setting['virtual_service'] = [skipped_setting_csv]
+        # Get the skipped list for ssl key and cert
+        if 'ssl_key_and_certificate_refs' in virtual_service:
+            for ssl_key_and_certificate_ref in \
+                    virtual_service['ssl_key_and_certificate_refs']:
+                ssl_key_cert = get_name(ssl_key_and_certificate_ref)
+                get_csv_skipped_list(profile_csv_list, ssl_key_cert, vs_ref,
+                                     field_key='key_cert')
+
+        # Get the skipped list for ssl profile name.
+        if 'ssl_profile_name' in virtual_service:
+            name, skipped = get_ssl_profile_skipped(
+                profile_csv_list, virtual_service['ssl_profile_name'], vs_ref)
+            if skipped:
+                skipped_setting['ssl profile'] = {}
+                skipped_setting['ssl profile']['name'] = name
+                skipped_setting['ssl profile']['skipped_list'] = skipped
+        # Get the skipped list for pool group.
+        if 'pool_group_ref' in virtual_service:
+            pool_group_name = get_name(virtual_service['pool_group_ref'])
+            csv_pool_rows = get_csv_object_list(csv_writer_dict_list, ['pool'])
+            pool_group_skipped_settings = get_pool_skipped_list \
+                (avi_config, pool_group_name,
+                 csv_pool_rows, csv_writer_dict_list, vs_ref, profile_csv_list)
+            if pool_group_skipped_settings:
+                skipped_setting['Pool Group'] = pool_group_skipped_settings
+        # Get the skipepd list for http policy.
+        if 'http_policies' in virtual_service:
+            for http_ref in virtual_service['http_policies']:
+                policy_set_name, skipped_list = get_policy_set_skipped(
+                    profile_csv_list, http_ref['http_policy_set_ref'], vs_ref)
+                if skipped_list:
+                    skipped_setting['Httppolicy'] = {}
+                    skipped_setting['Httppolicy']['name'] = policy_set_name
+                    skipped_setting['Httppolicy']['skipped_list'] = skipped_list
+                # Get the http policy name
+                pool_csv_rows = \
+                    get_csv_object_list(csv_writer_dict_list, ['pool'])
+                for each_http_policy in avi_config['HTTPPolicySet']:
+                    if each_http_policy['name'] == policy_set_name:
+                        for http_req in \
+                                each_http_policy['http_request_policy'][
+                                    'rules']:
+                            if http_req.get('switching_action'):
+                                pool_group_name = \
+                                get_name(http_req['switching_action']
+                                         ['pool_group_ref'])
+                                pool_group_skipped_settings = \
+                                    get_pool_skipped_list(
+                                        avi_config, pool_group_name,
+                                        pool_csv_rows, csv_writer_dict_list,
+                                        vs_ref, profile_csv_list)
+                                if pool_group_skipped_settings:
+                                    skipped_setting['Httppolicy']['Pool Group']\
+                                        = pool_group_skipped_settings
+
+
+        # # Get the skipped list for application_profile_ref.
+        if 'application_profile_ref' in virtual_service and 'admin:System' \
+                not in virtual_service['application_profile_ref']:
+            name, skipped = get_application_profile_skipped(
+                profile_csv_list, virtual_service['application_profile_ref'],
+                vs_ref)
+            if skipped:
+                skipped_setting['Application profile'] = {}
+                skipped_setting['Application profile'][
+                    'name'] = name
+                skipped_setting['Application profile'][
+                    'skipped_list'] = skipped
+        # # Get the skipped list for network profile ref.
+        if 'network_profile_ref' in virtual_service and 'admin:System' \
+                not in virtual_service['network_profile_ref']:
+            name, skipped = get_network_profile_skipped(
+                profile_csv_list, virtual_service['network_profile_ref'],
+                vs_ref)
+            if skipped:
+                skipped_setting['Network profile'] = {}
+                skipped_setting['Network profile'][
+                    'name'] = name
+                skipped_setting['Network profile'][
+                    'skipped_list'] = skipped
+        if skipped_setting:
+            vs_csv_object.update(
+                {'Overall skipped settings': str(skipped_setting)})
+        else:
+            vs_csv_object.update(
+                {'Overall skipped settings': "FULLY MIGRATION"})
+            fully_migrated += 1
+
+        csv_objects = [row for row in csv_writer_dict_list
+                       if row['Status'] in [conv_const.STATUS_PARTIAL,
+                                            conv_const.STATUS_SUCCESSFUL]
+                       and row['F5 type'] != 'virtual']
+
+        for row in csv_objects:
+            if 'VS Reference' not in row or row['VS Reference'] == '':
+                row['VS Reference'] = conv_const.STATUS_NOT_IN_USED
