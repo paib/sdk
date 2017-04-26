@@ -996,8 +996,8 @@ def write_status_report_and_pivot_table_in_xlsx(output_dir):
     # List of fieldnames for headers
     fieldnames = ['F5 type', 'F5 SubType', 'F5 ID', 'Status',
                   'Skipped settings', 'Indirect mapping', 'Not Applicable',
-                  'User Ignored', 'Skipped for defaults', 'VS Reference',
-                  'Overall skipped settings', 'Avi Object']
+                  'User Ignored', 'Skipped for defaults', 'Complexity Level',
+                  'VS Reference', 'Overall skipped settings', 'Avi Object']
 
     # xlsx workbook
     status_wb = Workbook(output_dir + os.path.sep + "ConversionStatus.xlsx")
@@ -1313,22 +1313,26 @@ def vs_per_skipped_setting_for_references(avi_config):
     :param avi_config: this method use avi_config for checking vs skipped
     :return: None
     """
-    # Get the VS object list which is having status successful and partial.
-    # get the count of vs fully migrated
 
+    # Get the count of vs fully migrated
     global fully_migrated
     fully_migrated = 0
+    # Get the VS object list which is having status successful and partial.
     vs_csv_objects = [row for row in csv_writer_dict_list
                      if row['Status'] in [conv_const.STATUS_PARTIAL,
                                           conv_const.STATUS_SUCCESSFUL]
                      and row['F5 type'] == 'virtual']
+    # Get the list of csv rows which has profile as F5 Type
     profile_csv_list = get_csv_object_list(
         csv_writer_dict_list, ['profile'])
     for vs_csv_object in vs_csv_objects:
         skipped_setting = {}
         virtual_service = format_string_to_json(vs_csv_object['Avi Object'])
+        # Update the complexity level of VS as Basic or Advanced
+        update_vs_complexity_level(vs_csv_object, virtual_service)
         vs_ref = virtual_service['name']
         repls = ('[', ''), (']', '')
+        # Get list of skipped setting attributes
         skipped_setting_csv = reduce(lambda a, kv: a.replace(*kv), repls,
                                      vs_csv_object['Skipped settings'])
         if skipped_setting_csv:
@@ -1413,6 +1417,7 @@ def vs_per_skipped_setting_for_references(avi_config):
                     'name'] = name
                 skipped_setting['Network profile'][
                     'skipped_list'] = skipped
+        # Update overall skipped setting of VS csv row
         if skipped_setting:
             vs_csv_object.update(
                 {'Overall skipped settings': str(skipped_setting)})
@@ -1426,6 +1431,28 @@ def vs_per_skipped_setting_for_references(avi_config):
                                             conv_const.STATUS_SUCCESSFUL]
                        and row['F5 type'] != 'virtual']
 
+        # Update the vs reference not in used if objects are not attached to
+        # VS directly or indirectly
         for row in csv_objects:
             if 'VS Reference' not in row or row['VS Reference'] == '':
                 row['VS Reference'] = conv_const.STATUS_NOT_IN_USED
+
+
+def update_vs_complexity_level(vs_csv_row, virtual_service):
+    """
+    This function defines that update complexity level of VS objects.
+    if it has reference of VS Datascript or Http policies -> Advanced
+    else
+    leve -> Basic
+    :param vs_csv_row: csv row of VS
+    :param virtual_service: dict of Virtual service
+    :return: None
+    """
+
+    if ('http_policies' in virtual_service and
+            virtual_service['http_policies']) or \
+            ('vs_datascripts' in virtual_service and
+                 virtual_service['vs_datascripts']):
+        vs_csv_row['Complexity Level'] = conv_const.COMPLEXITY_ADVANCED
+    else:
+        vs_csv_row['Complexity Level'] = conv_const.COMPLEXITY_BASIC

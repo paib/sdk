@@ -18,7 +18,8 @@ from avi.migrationtools.netscaler_converter.ns_constants \
             STATUS_NOT_APPLICABLE, STATUS_PARTIAL, STATUS_DATASCRIPT,
             STATUS_INCOMPLETE_CONFIGURATION, STATUS_COMMAND_NOT_SUPPORTED,
             OBJECT_TYPE_POOL_GROUP, OBJECT_TYPE_POOL, STATUS_NOT_IN_USED,
-            OBJECT_TYPE_HTTP_POLICY_SET, STATUS_LIST)
+            OBJECT_TYPE_HTTP_POLICY_SET, STATUS_LIST, COMPLEXITY_ADVANCED,
+            COMPLEXITY_BASIC)
 
 LOG = logging.getLogger(__name__)
 
@@ -831,6 +832,7 @@ def clean_virtual_service_from_avi_config(avi_config):
     avi_config['VirtualService'] = \
         [vs for vs in vs_list if vs['ip_address']['addr'] != '0.0.0.0']
 
+
 def get_name(url):
     """
     This function defines that return name object from url
@@ -940,11 +942,11 @@ def get_application_profile_skipped(csv_writer_dict_list, name_of_object,
     :return: List of skipped settings
     """
 
-    ssl_profile_name = get_name(name_of_object['application_profile_ref'])
+    app_profile_name = get_name(name_of_object['application_profile_ref'])
     csv_object = \
         get_csv_object_list(csv_writer_dict_list, ['add ns httpProfile'])
-    skipped_list = get_csv_skipped_list(csv_object, ssl_profile_name, vs_ref)
-    return ssl_profile_name, skipped_list
+    skipped_list = get_csv_skipped_list(csv_object, app_profile_name, vs_ref)
+    return app_profile_name, skipped_list
 
 
 def get_network_profile_skipped(csv_writer_dict_list, name_of_object, vs_ref):
@@ -955,11 +957,11 @@ def get_network_profile_skipped(csv_writer_dict_list, name_of_object, vs_ref):
     :return: List of skipped settings
     """
 
-    ssl_profile_name = get_name(name_of_object['network_profile_ref'])
+    network_profile_name = get_name(name_of_object['network_profile_ref'])
     csv_object = \
         get_csv_object_list(csv_writer_dict_list, ['add ns tcpProfile'])
-    skipped_list = get_csv_skipped_list(csv_object, ssl_profile_name, vs_ref)
-    return ssl_profile_name, skipped_list
+    skipped_list = get_csv_skipped_list(csv_object, network_profile_name, vs_ref)
+    return network_profile_name, skipped_list
 
 
 def get_app_persistence_profile_skipped(csv_writer_dict_list, name_of_object,
@@ -1089,16 +1091,18 @@ def get_pool_skipped_list(avi_config, pool_group_name, skipped_setting,
                                     'Application Persistence profile'][
                                     'skipped_list'] = skipped
 
+
 def vs_per_skipped_setting_for_references(avi_config):
     """
     This functions defines that Add the skipped setting per VS CSV row
     :param avi_config: this methode use avi_config for checking vs skipped
     :return: None
     """
-    # Get the VS object list which is having status successful and partial.
-    # get the count of vs sucessfully migrated
+
+    # Get the count of vs sucessfully migrated
     global fully_migrated
     fully_migrated = 0
+    # Get the VS object list which is having status successful and partial.
     vs_csv_objects = [row for row in csv_writer_dict_list
                      if row['Status'] in [STATUS_PARTIAL, STATUS_SUCCESSFUL]
                      and row['Netscaler Command']
@@ -1106,8 +1110,11 @@ def vs_per_skipped_setting_for_references(avi_config):
     for vs_csv_object in vs_csv_objects:
         skipped_setting = {}
         virtual_service = format_string_to_json(vs_csv_object['AVI Object'])
+        # Update the complexity level of VS as Basic or Advanced
+        update_vs_complexity_level(vs_csv_object, virtual_service)
         vs_ref = virtual_service['name']
         repls = ('[', ''), (']', '')
+        # Get list of skipped setting attributes
         skipped_setting_csv = reduce(lambda a, kv: a.replace(*kv), repls,
                                      vs_csv_object['Skipped settings'])
         if skipped_setting_csv:
@@ -1193,6 +1200,7 @@ def vs_per_skipped_setting_for_references(avi_config):
                     'name'] = name
                 skipped_setting['Network profile'][
                     'skipped_list'] = skipped
+        # Update overall skipped setting of VS csv row
         if skipped_setting:
             vs_csv_object.update(
                 {'Overall skipped settings': str(skipped_setting)})
@@ -1205,15 +1213,19 @@ def vs_per_skipped_setting_for_references(avi_config):
                    and row['Netscaler Command'] not in ['add cs vserver',
                                                         'add lb vserver']
                    and ('VS Reference' not in row or not row['VS Reference'])]
+    # Update the vs reference not in used if objects are not attached to
+    # VS directly or indirectly
     for csv_object in csv_objects:
         csv_object['VS Reference'] = STATUS_NOT_IN_USED
+
 
 def write_status_report_and_pivot_table_in_xlsx(row_list, output_dir):
     # List of fieldnames for headers
     fieldnames = ['Line Number', 'Netscaler Command', 'Object Name',
                   'Full Command', 'Status', 'Skipped settings',
                   'Indirect mapping', 'Not Applicable', 'User Ignored',
-                   'Overall skipped settings', 'VS Reference','AVI Object']
+                  'Overall skipped settings', 'Complexity Level', 'VS Reference',
+                  'AVI Object']
     # xlsx workbook
     status_wb = Workbook(output_dir + os.path.sep + "ConversionStatus.xlsx")
     # xlsx worksheet
@@ -1246,6 +1258,7 @@ def write_status_report_and_pivot_table_in_xlsx(row_list, output_dir):
     pivot_df.to_excel(master_writer, 'Pivot Sheet')
     master_writer.save()
 
+
 def update_skip_duplicates(obj, obj_list, obj_type, merge_profile_mapping,
                            name):
     """
@@ -1267,3 +1280,19 @@ def update_skip_duplicates(obj, obj_list, obj_type, merge_profile_mapping,
         return True
     return False
 
+def update_vs_complexity_level(vs_csv_row, virtual_service):
+    """
+    This function defines that update complexity level of VS objects.
+    if it has reference of VS Datascript or Http policies -> Advanced
+    else
+    leve -> Basic
+    :param vs_csv_row: csv row of VS
+    :param virtual_service: dict of Virtual service
+    :return: None
+    """
+
+    if 'http_policies' in virtual_service or \
+                    'vs_datascripts' in virtual_service:
+        vs_csv_row['Complexity Level'] = COMPLEXITY_ADVANCED
+    else:
+        vs_csv_row['Complexity Level'] = COMPLEXITY_BASIC
