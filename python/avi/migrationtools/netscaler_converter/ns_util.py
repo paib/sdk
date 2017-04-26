@@ -1280,6 +1280,7 @@ def update_skip_duplicates(obj, obj_list, obj_type, merge_profile_mapping,
         return True
     return False
 
+
 def update_vs_complexity_level(vs_csv_row, virtual_service):
     """
     This function defines that update complexity level of VS objects.
